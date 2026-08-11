@@ -3,7 +3,7 @@
   "displayName": "Prompt Scheduler for Claude Code",
   "description": "Schedule recurring Claude Code CLI prompts on Linux via cron, managed from a VS Code panel.",
   "version": "0.1.0",
-  "publisher": "REPLACE_WITH_YOUR_PUBLISHER_ID",
+  "publisher": "local-dev",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"

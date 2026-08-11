@@ -3,14 +3,20 @@ import { getNextRuns } from '../cron/cronExpression';
 import { ClaudeJob } from '../jobs/job';
 import { JobStore } from '../jobs/jobStore';
 
+function truncate(text: string, maxLength: number): string {
+  const singleLine = text.replace(/\s+/g, ' ').trim();
+  return singleLine.length > maxLength ? `${singleLine.slice(0, maxLength - 1)}…` : singleLine;
+}
+
 export class JobTreeItem extends vscode.TreeItem {
   constructor(public readonly job: ClaudeJob) {
     super(job.name, vscode.TreeItemCollapsibleState.None);
     this.id = job.id;
     this.contextValue = job.enabled ? 'claudeJob.enabled' : 'claudeJob.disabled';
-    this.description = job.schedule;
+    this.description = this.buildDescription(job);
     this.iconPath = new vscode.ThemeIcon(this.pickIcon(job));
     this.tooltip = this.buildTooltip(job);
+    this.command = { command: 'claudeCodeScheduler.editJob', title: 'Edit Job', arguments: [this] };
   }
 
   private pickIcon(job: ClaudeJob): string {
@@ -23,23 +29,34 @@ export class JobTreeItem extends vscode.TreeItem {
     return 'check';
   }
 
+  private describeNextRun(job: ClaudeJob): string {
+    if (!job.enabled) {
+      return 'Disabled';
+    }
+    try {
+      const [next] = getNextRuns(job.schedule, 1);
+      return `Next: ${next.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+    } catch {
+      return 'Invalid schedule';
+    }
+  }
+
+  private buildDescription(job: ClaudeJob): string {
+    const parts = [this.describeNextRun(job), truncate(job.prompt, 60)];
+    if (job.lastRun) {
+      parts.push(`last exit ${job.lastRun.exitCode}`);
+    }
+    return parts.join('  ·  ');
+  }
+
   private buildTooltip(job: ClaudeJob): string {
     const lines = [
       job.name,
-      `Schedule: ${job.schedule}`,
+      `Prompt: ${job.prompt}`,
+      `Schedule: ${job.schedule} (${this.describeNextRun(job)})`,
       `Working directory: ${job.cwd}`,
       `Output: ${job.outputPath}`,
     ];
-    if (!job.enabled) {
-      lines.push('Disabled');
-    } else {
-      try {
-        const [next] = getNextRuns(job.schedule, 1);
-        lines.push(`Next run: ${next.toLocaleString()}`);
-      } catch {
-        lines.push('Next run: invalid schedule');
-      }
-    }
     if (job.lastRun) {
       lines.push(
         `Last run: ${new Date(job.lastRun.timestamp).toLocaleString()} (exit code ${job.lastRun.exitCode})`,

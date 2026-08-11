@@ -32,6 +32,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const jobStore = new JobStore(dataDir);
   await jobStore.initialize();
+  context.subscriptions.push(jobStore);
 
   const cronManager = new CronManager();
   const treeDataProvider = new JobsTreeDataProvider(jobStore);
