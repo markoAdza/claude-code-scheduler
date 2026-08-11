@@ -22,7 +22,7 @@
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
-    "url": "REPLACE_WITH_YOUR_REPO_URL"
+    "url": "https://github.com/markoAdza/claude-code-scheduler.git"
   },
   "activationEvents": [],
   "main": "./dist/extension.js",
