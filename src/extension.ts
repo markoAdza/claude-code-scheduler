@@ -1,0 +1,171 @@
+import * as os from 'os';
+import * as path from 'path';
+import * as vscode from 'vscode';
+import { CronManager } from './cron/cronManager';
+import { ClaudeJobInput } from './jobs/job';
+import { JobStore } from './jobs/jobStore';
+import { runJobNow } from './jobs/jobRunner';
+import { getScriptPaths, removeJobScript, writeJobScript } from './jobs/scriptGenerator';
+import { addAdditionalPathEntry, detectClaudeCli, getAdditionalPathEntries, getConfiguredClaudeExecutablePath } from './util/claudeCli';
+import { isCommandAvailable } from './util/commandAvailability';
+import { JobFormPanel } from './ui/jobFormPanel';
+import { JobTreeItem, JobsTreeDataProvider } from './ui/jobsTreeDataProvider';
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  const outputChannel = vscode.window.createOutputChannel('Claude Code Scheduler');
+  context.subscriptions.push(outputChannel);
+
+  const config = vscode.workspace.getConfiguration('claudeCodeScheduler');
+  const dataDir = resolveDataDir(config.get<string>('dataDirectory'));
+  const shell = config.get<string>('shell') || '/bin/bash';
+
+  const logError = (message: string, error: unknown): void => {
+    const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+    outputChannel.appendLine(`${message}: ${detail}`);
+  };
+
+  if (!(await isCommandAvailable('crontab'))) {
+    void vscode.window.showErrorMessage(
+      'Claude Code Scheduler requires the "crontab" command, which was not found on this system.',
+    );
+  }
+
+  const jobStore = new JobStore(dataDir);
+  await jobStore.initialize();
+
+  const cronManager = new CronManager();
+  const treeDataProvider = new JobsTreeDataProvider(jobStore);
+  context.subscriptions.push(vscode.window.createTreeView('claudeCodeSchedulerJobs', { treeDataProvider }));
+
+  const resolveClaudeExecutable = async (): Promise<string | undefined> => {
+    const configured = getConfiguredClaudeExecutablePath();
+    if (configured) {
+      return configured;
+    }
+    const detected = await detectClaudeCli(shell);
+    if (!detected) {
+      return undefined;
+    }
+    await addAdditionalPathEntry(detected.binDir);
+    return detected.executablePath;
+  };
+
+  const syncCrontabFromStore = async (): Promise<void> => {
+    try {
+      await cronManager.sync(jobStore.getJobs(), dataDir, shell);
+    } catch (error) {
+      logError('Failed to sync crontab', error);
+      void vscode.window.showErrorMessage(
+        'Failed to update crontab. See the "Claude Code Scheduler" output channel for details.',
+      );
+    }
+  };
+
+  const saveJob = async (existingId: string | undefined, input: ClaudeJobInput): Promise<void> => {
+    const claudeExecutablePath = await resolveClaudeExecutable();
+    if (!claudeExecutablePath) {
+      throw new Error(
+        'Could not locate the "claude" CLI. Set claudeCodeScheduler.claudeExecutablePath in Settings.',
+      );
+    }
+    const job = existingId ? await jobStore.updateJob(existingId, input) : await jobStore.createJob(input);
+    await writeJobScript(job, dataDir, claudeExecutablePath, getAdditionalPathEntries());
+    await syncCrontabFromStore();
+  };
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('claudeCodeScheduler.addJob', () => {
+      JobFormPanel.show(undefined, (input) => saveJob(undefined, input));
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.editJob', (item: JobTreeItem) => {
+      JobFormPanel.show(item.job, (input) => saveJob(item.job.id, input));
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.deleteJob', async (item: JobTreeItem) => {
+      const confirmed = await vscode.window.showWarningMessage(
+        `Delete job "${item.job.name}"? This removes its crontab entry and generated files.`,
+        { modal: true },
+        'Delete',
+      );
+      if (confirmed !== 'Delete') {
+        return;
+      }
+      await jobStore.deleteJob(item.job.id);
+      await removeJobScript(dataDir, item.job.id);
+      await syncCrontabFromStore();
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.toggleJob', async (item: JobTreeItem) => {
+      await jobStore.setEnabled(item.job.id, !item.job.enabled);
+      await syncCrontabFromStore();
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.runJobNow', async (item: JobTreeItem) => {
+      try {
+        const exitCode = await runJobNow(item.job, dataDir, shell, jobStore);
+        void vscode.window.showInformationMessage(
+          exitCode === 0
+            ? `"${item.job.name}" finished successfully.`
+            : `"${item.job.name}" exited with code ${exitCode}. Check its error log.`,
+        );
+      } catch (error) {
+        logError(`Failed to run job ${item.job.id}`, error);
+        void vscode.window.showErrorMessage(`Failed to run "${item.job.name}". See output for details.`);
+      }
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.viewOutput', async (item: JobTreeItem) => {
+      try {
+        const doc = await vscode.workspace.openTextDocument(item.job.outputPath);
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch {
+        void vscode.window.showWarningMessage(`No output yet for "${item.job.name}".`);
+      }
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.openPromptFile', async (item: JobTreeItem) => {
+      const { promptFile } = getScriptPaths(dataDir, item.job.id);
+      const doc = await vscode.workspace.openTextDocument(promptFile);
+      await vscode.window.showTextDocument(doc);
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.redetectClaudeCli', async () => {
+      const detected = await detectClaudeCli(shell);
+      if (!detected) {
+        void vscode.window.showErrorMessage('Could not find the "claude" CLI on this system.');
+        return;
+      }
+      await addAdditionalPathEntry(detected.binDir);
+      void vscode.window.showInformationMessage(`Found claude at ${detected.executablePath}.`);
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.resyncCrontab', async () => {
+      await syncCrontabFromStore();
+      void vscode.window.showInformationMessage('Crontab synced with Claude Code Scheduler jobs.');
+    }),
+  );
+
+  const drifted = await cronManager.hasDrifted(jobStore.getJobs(), dataDir, shell).catch((error) => {
+    logError('Failed to check crontab drift', error);
+    return false;
+  });
+  if (drifted) {
+    void vscode.window
+      .showWarningMessage("The system crontab has diverged from Claude Code Scheduler's jobs.", 'Resync Now')
+      .then((choice) => {
+        if (choice === 'Resync Now') {
+          void vscode.commands.executeCommand('claudeCodeScheduler.resyncCrontab');
+        }
+      });
+  }
+}
+
+export function deactivate(): void {
+  // No cleanup needed: scripts and crontab entries are meant to outlive the extension host.
+}
+
+function resolveDataDir(configured: string | undefined): string {
+  const value = configured?.trim() ? configured.trim() : '~/.claude-code-scheduler';
+  return value.startsWith('~') ? path.join(os.homedir(), value.slice(1)) : value;
+}
