@@ -2,7 +2,7 @@
   "name": "claude-code-scheduler",
   "displayName": "Prompt Scheduler for Claude Code",
   "description": "Schedule recurring Claude Code CLI prompts on Linux, macOS, and Windows, managed from a VS Code panel.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "Adza",
   "license": "MIT",
   "engines": {
