@@ -47,4 +47,45 @@ suite('scriptGenerator', () => {
 
     assert.ok(!script.includes('export PATH'));
   });
+
+  test('getScriptPaths uses a .ps1 extension on win32 and .sh elsewhere', () => {
+    assert.match(getScriptPaths('/data', 'job-1', 'win32').runScript, /run\.ps1$/);
+    assert.match(getScriptPaths('/data', 'job-1', 'linux').runScript, /run\.sh$/);
+    assert.match(getScriptPaths('/data', 'job-1', 'darwin').runScript, /run\.sh$/);
+  });
+
+  test('builds a PowerShell script that cds into the working directory and redirects output', () => {
+    const job = makeJob({ cwd: 'C:\\Users\\dev\\project', outputPath: 'C:\\Users\\dev\\project\\output.md' });
+    const paths = getScriptPaths('/data', job.id, 'win32');
+    const script = buildRunScript(job, paths, 'C:\\tools\\claude.exe', [], 'win32');
+
+    assert.match(script, /^\$ErrorActionPreference = "Stop"\n/);
+    assert.ok(script.includes('[Console]::OutputEncoding = [System.Text.Encoding]::UTF8'));
+    assert.ok(script.includes("try { Set-Location -LiteralPath 'C:\\Users\\dev\\project' } catch { exit 1 }"));
+    assert.ok(
+      script.includes(`$prompt = [System.IO.File]::ReadAllText('${paths.promptFile}', [System.Text.Encoding]::UTF8)`),
+    );
+    assert.ok(
+      script.includes(
+        `& 'C:\\tools\\claude.exe' -p $prompt 1> 'C:\\Users\\dev\\project\\output.md' 2>> '${paths.errorLog}'`,
+      ),
+    );
+    assert.match(script, /exit \$LASTEXITCODE\n$/);
+  });
+
+  test('PowerShell script prepends additional PATH entries with a semicolon join', () => {
+    const job = makeJob();
+    const paths = getScriptPaths('/data', job.id, 'win32');
+    const script = buildRunScript(job, paths, 'C:\\tools\\claude.exe', ['C:\\nvm\\v22'], 'win32');
+
+    assert.ok(script.includes("$env:Path = 'C:\\nvm\\v22;' + $env:Path"));
+  });
+
+  test('PowerShell script escapes embedded single quotes in paths', () => {
+    const job = makeJob({ cwd: "C:\\Users\\O'Brien\\project" });
+    const paths = getScriptPaths('/data', job.id, 'win32');
+    const script = buildRunScript(job, paths, 'C:\\tools\\claude.exe', [], 'win32');
+
+    assert.ok(script.includes("C:\\Users\\O''Brien\\project"));
+  });
 });

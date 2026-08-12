@@ -8,10 +8,14 @@ export async function runJobNow(
   dataDir: string,
   shell: string,
   jobStore: JobStore,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<number> {
-  const { runScript } = getScriptPaths(dataDir, job.id);
+  const { runScript } = getScriptPaths(dataDir, job.id, platform);
   const exitCode = await new Promise<number>((resolve, reject) => {
-    const child = spawn(shell, [runScript]);
+    const child =
+      platform === 'win32'
+        ? spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', runScript])
+        : spawn(shell, [runScript]);
     child.on('error', reject);
     child.on('close', (code) => resolve(code ?? -1));
   });

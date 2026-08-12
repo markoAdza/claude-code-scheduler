@@ -1,7 +1,7 @@
 {
   "name": "claude-code-scheduler",
   "displayName": "Prompt Scheduler for Claude Code",
-  "description": "Schedule recurring Claude Code CLI prompts on Linux via cron, managed from a VS Code panel.",
+  "description": "Schedule recurring Claude Code CLI prompts on Linux, macOS, and Windows, managed from a VS Code panel.",
   "version": "0.1.0",
   "publisher": "Adza",
   "license": "MIT",
@@ -101,7 +101,7 @@
       {
         "command": "claudeCodeScheduler.resyncCrontab",
         "category": "Claude Code Scheduler",
-        "title": "Resync Crontab",
+        "title": "Resync Schedule",
         "icon": "$(sync)"
       }
     ],
@@ -175,7 +175,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Extra directories prepended to PATH in generated job scripts (e.g. an nvm Node bin directory)."
+          "description": "Extra directories prepended to PATH (or Path on Windows) in generated job scripts (e.g. an nvm Node bin directory)."
         },
         "claudeCodeScheduler.dataDirectory": {
           "type": "string",
@@ -184,8 +184,8 @@
         },
         "claudeCodeScheduler.shell": {
           "type": "string",
-          "default": "/bin/bash",
-          "description": "Shell used to run generated job scripts and detect the claude CLI."
+          "default": "",
+          "description": "Linux/macOS only. Shell used to run generated job scripts and detect the claude CLI. Leave empty to use $SHELL, falling back to /bin/bash. Ignored on Windows, where jobs always run via PowerShell."
         }
       }
     }
