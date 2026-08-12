@@ -19,6 +19,7 @@ export class JobFormPanel {
     private readonly existingJob: ClaudeJob | undefined,
     private readonly onSubmit: (input: ClaudeJobInput) => Promise<void>,
     private readonly schedulerDisplayName: string,
+    private readonly resolveClaudeExecutable: () => Promise<string | undefined>,
     private readonly template: ClaudeJobInput | undefined,
   ) {
     this.panel = vscode.window.createWebviewPanel(
@@ -38,6 +39,7 @@ export class JobFormPanel {
       this.disposables,
     );
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    void this.refreshCliStatus();
   }
 
   /**
@@ -49,10 +51,23 @@ export class JobFormPanel {
     existingJob: ClaudeJob | undefined,
     onSubmit: (input: ClaudeJobInput) => Promise<void>,
     schedulerDisplayName: string,
+    resolveClaudeExecutable: () => Promise<string | undefined>,
     template?: ClaudeJobInput,
   ): void {
     JobFormPanel.currentPanel?.dispose();
-    JobFormPanel.currentPanel = new JobFormPanel(existingJob, onSubmit, schedulerDisplayName, template);
+    JobFormPanel.currentPanel = new JobFormPanel(existingJob, onSubmit, schedulerDisplayName, resolveClaudeExecutable, template);
+  }
+
+  /** Called after the extension re-detects the `claude` CLI (e.g. once an install/re-detect
+   * terminal it opened on this panel's behalf closes), so the open form's banner updates without
+   * the user having to close and reopen it. A no-op if no form is currently open. */
+  static async refreshCurrentCliStatus(): Promise<void> {
+    await JobFormPanel.currentPanel?.refreshCliStatus();
+  }
+
+  private async refreshCliStatus(): Promise<void> {
+    const claudeExecutablePath = await this.resolveClaudeExecutable();
+    void this.panel.webview.postMessage({ type: 'claudeCliStatus', available: Boolean(claudeExecutablePath) });
   }
 
   private async handleMessage(message: WebviewMessage): Promise<void> {
@@ -71,6 +86,15 @@ export class JobFormPanel {
         return;
       case 'cancel':
         this.dispose();
+        return;
+      case 'installClaudeCli':
+        await vscode.commands.executeCommand('claudeCodeScheduler.installClaudeCli');
+        return;
+      case 'verifySetup':
+        await vscode.commands.executeCommand(
+          'claudeCodeScheduler.verifySetup',
+          typeof message.cwd === 'string' ? message.cwd : '',
+        );
         return;
       default:
         return;
@@ -202,7 +226,8 @@ export class JobFormPanel {
   }
   input[readonly] { opacity: 0.75; cursor: default; }
   textarea { min-height: 110px; font-family: var(--vscode-editor-font-family); resize: vertical; }
-  .row { display: flex; gap: 8px; align-items: center; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .callout code { background: var(--vscode-textCodeBlock-background); padding: 1px 4px; border-radius: 3px; }
   .row input[type=text] { flex: 1; }
   .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
   @media (max-width: 560px) { .field-grid { grid-template-columns: 1fr; } }
@@ -252,6 +277,11 @@ export class JobFormPanel {
   }</h1>
   <p class="subtitle">Schedule a recurring Claude Code CLI prompt.</p>
 
+  <div id="cliWarning" class="callout warning" style="display:none;">
+    The <code>claude</code> CLI wasn't found.
+    <button type="button" class="secondary" id="installCli">Install Claude CLI</button>
+  </div>
+
   <div class="field">
     <label for="name">Name</label>
     <input type="text" id="name" value="${escapeHtml(values?.name ?? '')}" placeholder="e.g. Daily standup summary" />
@@ -272,6 +302,11 @@ export class JobFormPanel {
         <div class="row">
           <input type="text" id="cwd" value="${escapeHtml(values?.cwd ?? '')}" placeholder="${escapeHtml(cwdPlaceholder)}" />
           <button type="button" class="secondary" id="pickFolder">Browse…</button>
+          <button type="button" class="secondary" id="verifySetup">Verify Setup</button>
+        </div>
+        <div class="hint">
+          Opens a terminal that checks the CLI and, if this folder hasn't been trusted by Claude Code
+          before, lets you accept its trust prompt — a scheduled run can't answer that prompt itself.
         </div>
       </div>
       <div class="field">
@@ -343,6 +378,7 @@ export class JobFormPanel {
       const windowsWarning = document.getElementById('windowsWarning');
       const errorBox = document.getElementById('error');
       const saveButton = document.getElementById('save');
+      const cliWarning = document.getElementById('cliWarning');
 
       // Below this, a schedule is flagged as "very frequent" — a soft warning only, since a tight
       // interval is sometimes exactly what's wanted. It never blocks Save.
@@ -496,6 +532,12 @@ export class JobFormPanel {
       document.getElementById('pickFolder').addEventListener('click', function () {
         vscode.postMessage({ type: 'pickFolder' });
       });
+      document.getElementById('installCli').addEventListener('click', function () {
+        vscode.postMessage({ type: 'installClaudeCli' });
+      });
+      document.getElementById('verifySetup').addEventListener('click', function () {
+        vscode.postMessage({ type: 'verifySetup', cwd: document.getElementById('cwd').value.trim() });
+      });
       document.getElementById('pickOutputFile').addEventListener('click', function () {
         vscode.postMessage({ type: 'pickOutputFile', currentPath: document.getElementById('outputPath').value });
       });
@@ -547,6 +589,8 @@ export class JobFormPanel {
         } else if (message.type === 'submitError') {
           errorBox.textContent = message.message;
           errorBox.style.display = 'block';
+        } else if (message.type === 'claudeCliStatus') {
+          cliWarning.style.display = message.available ? 'none' : 'block';
         }
       });
 

@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- "Install Claude CLI" action (in a startup notification, the Jobs view's empty state, and the job
+  form) that runs the official installer in a terminal for you when the `claude` CLI can't be
+  found, instead of only pointing at a settings key to fill in by hand.
+- "Verify Setup" button in the job form that runs the job's exact `claude -p` invocation for its
+  chosen working directory in a visible terminal, so a folder Claude Code hasn't seen before (and
+  would otherwise hang scheduled runs on an unanswerable first-run trust prompt) can be confirmed
+  and trusted at setup time instead of failing silently on its first scheduled run.
 - "Duplicate Job" action that opens a prefilled New Job form from an existing job's settings, so
   variations on a job no longer need to be built from scratch. The duplicate starts disabled so it
   can't start firing on the original's schedule before it's been reviewed.

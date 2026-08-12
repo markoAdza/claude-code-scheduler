@@ -26,7 +26,14 @@ top of your OS scheduler, not a replacement that only works while VS Code is ope
 ## Requirements
 
 - The [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) installed and already
-  authenticated (`claude` should work from your terminal) — required on every OS.
+  authenticated (`claude` should work from your terminal) — required on every OS. If it's missing,
+  the extension offers an **Install Claude CLI** button (in the Jobs view, the job form, and any
+  "CLI not found" notification) that runs the official installer for you in a terminal.
+- Each job's working directory needs to have been opened with `claude` at least once, so its
+  one-time "do you trust the files in this folder?" prompt has already been accepted — a scheduled
+  run has no terminal to answer that prompt with and will otherwise hang until it times out. Use the
+  **Verify Setup** button next to the working directory field in the job form to check this (and
+  accept the trust prompt, if it comes up) before saving.
 - **Linux**: the `crontab` command available (installed by default on almost every distro).
 - **macOS**: the `crontab` command (built in). Modern macOS runs `cron` under the system's
   privacy protections — if a job's working directory or output file lives under a protected
@@ -42,9 +49,12 @@ top of your OS scheduler, not a replacement that only works while VS Code is ope
 
 1. Open the **Claude Code Scheduler** icon in the Activity Bar.
 2. Click **Add Job** and fill in a name, prompt, working directory, schedule, and output file.
-3. Save — the extension writes a runner script and registers it with your OS scheduler
+3. Click **Verify Setup** next to the working directory field — it opens a terminal that confirms
+   the CLI is installed and, if this is the first time Claude Code has seen that folder, lets you
+   accept its trust prompt right there instead of finding out from a failed scheduled run later.
+4. Save — the extension writes a runner script and registers it with your OS scheduler
    automatically.
-4. Use the job's inline actions to run it immediately, edit it, enable/disable it, view its last
+5. Use the job's inline actions to run it immediately, edit it, enable/disable it, view its last
    output, open its prompt file, or delete it.
 
 ## How it works

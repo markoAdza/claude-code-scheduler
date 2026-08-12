@@ -47,7 +47,13 @@
     "viewsWelcome": [
       {
         "view": "claudeCodeSchedulerJobs",
-        "contents": "No scheduled jobs yet.\n[Add Job](command:claudeCodeScheduler.addJob)"
+        "contents": "The `claude` CLI wasn't found.\n[Install Claude CLI](command:claudeCodeScheduler.installClaudeCli)",
+        "when": "claudeCodeScheduler.claudeCliMissing"
+      },
+      {
+        "view": "claudeCodeSchedulerJobs",
+        "contents": "No scheduled jobs yet.\n[Add Job](command:claudeCodeScheduler.addJob)",
+        "when": "!claudeCodeScheduler.claudeCliMissing"
       }
     ],
     "commands": [
@@ -115,6 +121,16 @@
         "command": "claudeCodeScheduler.redetectClaudeCli",
         "category": "Claude Code Scheduler",
         "title": "Re-detect Claude CLI"
+      },
+      {
+        "command": "claudeCodeScheduler.installClaudeCli",
+        "category": "Claude Code Scheduler",
+        "title": "Install Claude CLI"
+      },
+      {
+        "command": "claudeCodeScheduler.verifySetup",
+        "category": "Claude Code Scheduler",
+        "title": "Verify Setup"
       },
       {
         "command": "claudeCodeScheduler.resyncCrontab",

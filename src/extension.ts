@@ -9,6 +9,8 @@ import { DEFAULT_JOB_TIMEOUT_MINUTES, getScriptPaths, removeJobScript, writeJobS
 import { createSchedulerBackend, SchedulerContext } from './scheduler';
 import { addAdditionalPathEntry, detectClaudeCli, getAdditionalPathEntries, getConfiguredClaudeExecutablePath } from './util/claudeCli';
 import { isCommandAvailable } from './util/commandAvailability';
+import { getInstallCommand } from './util/installClaudeCli';
+import { buildVerifySetupCommands } from './util/verifySetup';
 import { JobFormPanel } from './ui/jobFormPanel';
 import { JobTreeItem, JobsTreeDataProvider } from './ui/jobsTreeDataProvider';
 
@@ -58,6 +60,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return detected.executablePath;
   };
 
+  // Drives the empty-state welcome view in the Jobs tree (see viewsWelcome in package.json), so a
+  // brand-new user sees an actionable "install" prompt there instead of only a passing notification.
+  const refreshClaudeCliMissingContext = async (): Promise<string | undefined> => {
+    const claudeExecutablePath = await resolveClaudeExecutable();
+    await vscode.commands.executeCommand(
+      'setContext',
+      'claudeCodeScheduler.claudeCliMissing',
+      !claudeExecutablePath,
+    );
+    return claudeExecutablePath;
+  };
+
+  const INSTALL_TERMINAL_NAME = 'Install Claude Code CLI';
+  const VERIFY_SETUP_TERMINAL_NAME = 'Claude Code Scheduler: Verify Setup';
+  let installTerminal: vscode.Terminal | undefined;
+  let verifyTerminal: vscode.Terminal | undefined;
+
+  const installClaudeCli = (): void => {
+    installTerminal?.dispose();
+    installTerminal = vscode.window.createTerminal(INSTALL_TERMINAL_NAME);
+    installTerminal.show();
+    installTerminal.sendText(getInstallCommand());
+  };
+
+  const offerInstallOnMissingCli = async (message: string): Promise<void> => {
+    const choice = await vscode.window.showErrorMessage(message, 'Install Claude CLI', 'Set Path Manually');
+    if (choice === 'Install Claude CLI') {
+      installClaudeCli();
+    } else if (choice === 'Set Path Manually') {
+      await vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        'claudeCodeScheduler.claudeExecutablePath',
+      );
+    }
+  };
+
   const syncScheduleFromStore = async (): Promise<void> => {
     try {
       await schedulerBackend.sync(jobStore.getJobs(), schedulerContext);
@@ -83,11 +121,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.commands.registerCommand('claudeCodeScheduler.addJob', () => {
-      JobFormPanel.show(undefined, (input) => saveJob(undefined, input), schedulerBackend.displayName);
+      JobFormPanel.show(undefined, (input) => saveJob(undefined, input), schedulerBackend.displayName, resolveClaudeExecutable);
     }),
 
     vscode.commands.registerCommand('claudeCodeScheduler.editJob', (item: JobTreeItem) => {
-      JobFormPanel.show(item.job, (input) => saveJob(item.job.id, input), schedulerBackend.displayName);
+      JobFormPanel.show(item.job, (input) => saveJob(item.job.id, input), schedulerBackend.displayName, resolveClaudeExecutable);
     }),
 
     vscode.commands.registerCommand('claudeCodeScheduler.duplicateJob', (item: JobTreeItem) => {
@@ -101,7 +139,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // twice as often until the user has reviewed and deliberately re-enabled it.
         enabled: false,
       };
-      JobFormPanel.show(undefined, (input) => saveJob(undefined, input), schedulerBackend.displayName, template);
+      JobFormPanel.show(undefined, (input) => saveJob(undefined, input), schedulerBackend.displayName, resolveClaudeExecutable, template);
     }),
 
     vscode.commands.registerCommand('claudeCodeScheduler.deleteJob', async (item: JobTreeItem) => {
@@ -188,6 +226,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       await addAdditionalPathEntry(detected.binDir);
+      await refreshClaudeCliMissingContext();
+      await JobFormPanel.refreshCurrentCliStatus();
       void vscode.window.showInformationMessage(`Found claude at ${detected.executablePath}.`);
     }),
 
@@ -195,7 +235,55 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await syncScheduleFromStore();
       void vscode.window.showInformationMessage(`${schedulerBackend.displayName} synced with Claude Code Scheduler jobs.`);
     }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.installClaudeCli', () => {
+      installClaudeCli();
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.verifySetup', async (cwd?: string) => {
+      const targetCwd = cwd?.trim();
+      if (!targetCwd) {
+        void vscode.window.showWarningMessage('Enter a working directory before verifying setup.');
+        return;
+      }
+      const claudeExecutablePath = await resolveClaudeExecutable();
+      if (!claudeExecutablePath) {
+        await offerInstallOnMissingCli('Could not locate the "claude" CLI.');
+        return;
+      }
+      verifyTerminal?.dispose();
+      verifyTerminal = vscode.window.createTerminal(VERIFY_SETUP_TERMINAL_NAME);
+      verifyTerminal.show();
+      for (const line of buildVerifySetupCommands(targetCwd, claudeExecutablePath)) {
+        verifyTerminal.sendText(line);
+      }
+    }),
+
+    vscode.window.onDidCloseTerminal(async (closed) => {
+      if (closed === verifyTerminal) {
+        verifyTerminal = undefined;
+        return;
+      }
+      if (closed !== installTerminal) {
+        return;
+      }
+      installTerminal = undefined;
+      const claudeExecutablePath = await refreshClaudeCliMissingContext();
+      await JobFormPanel.refreshCurrentCliStatus();
+      void vscode.window.showInformationMessage(
+        claudeExecutablePath
+          ? `Found claude at ${claudeExecutablePath}.`
+          : 'Claude CLI still not found. If the installer just finished, you may need to restart VS Code (or open a new terminal) for PATH changes to take effect.',
+      );
+    }),
   );
+
+  const claudeExecutableAtStartup = await refreshClaudeCliMissingContext();
+  if (!claudeExecutableAtStartup) {
+    void offerInstallOnMissingCli(
+      'Claude Code Scheduler could not find the "claude" CLI. Jobs cannot be scheduled until it is installed.',
+    );
+  }
 
   const drifted = await schedulerBackend.hasDrifted(jobStore.getJobs(), schedulerContext).catch((error) => {
     logError('Failed to check schedule drift', error);
