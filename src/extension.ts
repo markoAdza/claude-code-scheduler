@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { ClaudeJobInput } from './jobs/job';
 import { JobStore } from './jobs/jobStore';
 import { runJobNow } from './jobs/jobRunner';
-import { getScriptPaths, removeJobScript, writeJobScript } from './jobs/scriptGenerator';
+import { DEFAULT_JOB_TIMEOUT_MINUTES, getScriptPaths, removeJobScript, writeJobScript } from './jobs/scriptGenerator';
 import { createSchedulerBackend, SchedulerContext } from './scheduler';
 import { addAdditionalPathEntry, detectClaudeCli, getAdditionalPathEntries, getConfiguredClaudeExecutablePath } from './util/claudeCli';
 import { isCommandAvailable } from './util/commandAvailability';
@@ -19,6 +19,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const dataDir = resolveDataDir(config.get<string>('dataDirectory'));
   const shell = config.get<string>('shell') || (process.platform === 'win32' ? '' : process.env.SHELL || '/bin/bash');
   const schedulerContext: SchedulerContext = { dataDir, shell };
+  const jobTimeoutMinutes = config.get<number>('jobTimeoutMinutes') ?? DEFAULT_JOB_TIMEOUT_MINUTES;
 
   const logError = (message: string, error: unknown): void => {
     const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
@@ -37,8 +38,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await jobStore.initialize();
   context.subscriptions.push(jobStore);
 
-  const treeDataProvider = new JobsTreeDataProvider(jobStore);
-  context.subscriptions.push(vscode.window.createTreeView('claudeCodeSchedulerJobs', { treeDataProvider }));
+  const treeDataProvider = new JobsTreeDataProvider(jobStore, dataDir);
+  context.subscriptions.push(
+    treeDataProvider,
+    vscode.window.createTreeView('claudeCodeSchedulerJobs', { treeDataProvider }),
+  );
 
   const resolveClaudeExecutable = async (): Promise<string | undefined> => {
     const configured = getConfiguredClaudeExecutablePath();
@@ -72,7 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
     }
     const job = existingId ? await jobStore.updateJob(existingId, input) : await jobStore.createJob(input);
-    await writeJobScript(job, dataDir, claudeExecutablePath, getAdditionalPathEntries());
+    await writeJobScript(job, dataDir, claudeExecutablePath, getAdditionalPathEntries(), jobTimeoutMinutes);
     await syncScheduleFromStore();
   };
 
@@ -106,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('claudeCodeScheduler.runJobNow', async (item: JobTreeItem) => {
       try {
-        const exitCode = await runJobNow(item.job, dataDir, shell, jobStore);
+        const exitCode = await runJobNow(item.job, dataDir, shell);
         void vscode.window.showInformationMessage(
           exitCode === 0
             ? `"${item.job.name}" finished successfully.`

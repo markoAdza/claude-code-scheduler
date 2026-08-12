@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Working directory and output path values that contain shell metacharacters (`"`, `$`, backticks)
+  are now properly quoted in generated Linux/macOS run scripts, instead of being interpolated
+  unescaped into the shell command.
+
+### Added
+
+- Job status shown in the tree view (icon, "last exit" text, and tooltip) now reflects every real
+  run of a job — including ones triggered by the OS scheduler while VS Code was closed — instead
+  of only manual "Run Now" invocations.
+- A per-job lock so two overlapping runs of the same job (e.g. a slow prompt on a frequent
+  schedule) no longer race on the same output file; the later run is skipped and noted in the
+  job's error log.
+- A configurable run timeout (`claudeCodeScheduler.jobTimeoutMinutes`, default 30) that terminates
+  a hung `claude` invocation — for example one stuck on a permission prompt with no terminal to
+  answer it — instead of letting it block indefinitely and wedge every subsequent scheduled run.
+
 ## [0.2.0] - 2026-08-12
 
 ### Added

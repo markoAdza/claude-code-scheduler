@@ -108,10 +108,6 @@ export class JobStore implements vscode.Disposable {
     );
   }
 
-  async recordRun(id: string, lastRun: ClaudeJob['lastRun']): Promise<void> {
-    await this.mutate((jobs) => jobs.map((job) => (job.id === id ? { ...job, lastRun } : job)));
-  }
-
   private async load(): Promise<void> {
     try {
       const raw = await fs.readFile(this.jobsFilePath, 'utf8');

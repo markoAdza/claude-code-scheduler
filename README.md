@@ -17,6 +17,11 @@ top of your OS scheduler, not a replacement that only works while VS Code is ope
   via nvm) on Linux/macOS, or on `PATH` via `where` on Windows.
 - Only ever touches the entries it created — every other crontab line or scheduled task on your
   system is left untouched.
+- The tree view reflects the outcome of every real run — including ones triggered by the OS
+  scheduler while VS Code was closed — not just manual "Run Now" clicks.
+- Overlapping runs of the same job are skipped rather than left to race on the same output file,
+  and a run that hangs (e.g. stuck on a permission prompt with no terminal to answer it) is
+  terminated after a configurable timeout instead of blocking every later run indefinitely.
 
 ## Requirements
 
@@ -48,6 +53,12 @@ For each job, the extension writes a `prompt.txt` and a runner script under its 
 (default `~/.claude-code-scheduler/scripts/<job-id>/`), then registers that script with the OS
 scheduler.
 
+Every run — scheduled or manual — takes out a lock for that job (so a second overlapping run backs
+off instead of racing it), is killed if it exceeds `claudeCodeScheduler.jobTimeoutMinutes`, and
+finishes by writing a `status.json` with its timestamp and exit code. The tree view reads that file
+to show real run status, and a small sentinel file at the root of the data directory is touched
+afterwards so VS Code notices and refreshes even if it was open when the run happened elsewhere.
+
 **On Linux/macOS**, one line is added per job inside a managed block in your crontab:
 
 ```
@@ -77,6 +88,7 @@ or deleting a job removes its task; nothing else in Task Scheduler is touched.
 | `claudeCodeScheduler.additionalPathEntries` | `[]` | Extra directories prepended to `PATH`/`Path` in generated scripts. |
 | `claudeCodeScheduler.dataDirectory` | `~/.claude-code-scheduler` | Where job definitions, scripts, prompts, and logs live. |
 | `claudeCodeScheduler.shell` | `""` (`$SHELL`, or `/bin/bash`) | **Linux/macOS only.** Shell used to run job scripts and detect the `claude` CLI. Ignored on Windows. |
+| `claudeCodeScheduler.jobTimeoutMinutes` | `30` | Maximum minutes a job's `claude` invocation may run before it's forcibly terminated. |
 
 ## Limitations
 

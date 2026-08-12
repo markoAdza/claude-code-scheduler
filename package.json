@@ -186,6 +186,12 @@
           "type": "string",
           "default": "",
           "description": "Linux/macOS only. Shell used to run generated job scripts and detect the claude CLI. Leave empty to use $SHELL, falling back to /bin/bash. Ignored on Windows, where jobs always run via PowerShell."
+        },
+        "claudeCodeScheduler.jobTimeoutMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "Maximum minutes a job's `claude` invocation may run before it is forcibly terminated. Prevents a run that's stuck (e.g. waiting on a permission prompt with no terminal to answer it) from hanging forever and blocking that job's future runs."
         }
       }
     }

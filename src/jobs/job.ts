@@ -1,8 +1,3 @@
-export interface ClaudeJobLastRun {
-  timestamp: string;
-  exitCode: number;
-}
-
 export interface ClaudeJob {
   id: string;
   name: string;
@@ -13,7 +8,6 @@ export interface ClaudeJob {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
-  lastRun?: ClaudeJobLastRun;
 }
 
 export type ClaudeJobInput = Pick<
