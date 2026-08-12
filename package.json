@@ -64,6 +64,12 @@
         "icon": "$(edit)"
       },
       {
+        "command": "claudeCodeScheduler.duplicateJob",
+        "category": "Claude Code Scheduler",
+        "title": "Duplicate Job",
+        "icon": "$(copy)"
+      },
+      {
         "command": "claudeCodeScheduler.deleteJob",
         "category": "Claude Code Scheduler",
         "title": "Delete Job",
@@ -86,6 +92,18 @@
         "category": "Claude Code Scheduler",
         "title": "View Last Output",
         "icon": "$(output)"
+      },
+      {
+        "command": "claudeCodeScheduler.viewErrorLog",
+        "category": "Claude Code Scheduler",
+        "title": "View Error Log",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "claudeCodeScheduler.viewRunHistory",
+        "category": "Claude Code Scheduler",
+        "title": "View Run History",
+        "icon": "$(history)"
       },
       {
         "command": "claudeCodeScheduler.openPromptFile",
@@ -145,14 +163,29 @@
           "group": "1_actions@3"
         },
         {
+          "command": "claudeCodeScheduler.duplicateJob",
+          "when": "view == claudeCodeSchedulerJobs",
+          "group": "1_actions@4"
+        },
+        {
           "command": "claudeCodeScheduler.viewOutput",
           "when": "view == claudeCodeSchedulerJobs",
           "group": "2_inspect@1"
         },
         {
-          "command": "claudeCodeScheduler.openPromptFile",
+          "command": "claudeCodeScheduler.viewErrorLog",
           "when": "view == claudeCodeSchedulerJobs",
           "group": "2_inspect@2"
+        },
+        {
+          "command": "claudeCodeScheduler.viewRunHistory",
+          "when": "view == claudeCodeSchedulerJobs",
+          "group": "2_inspect@3"
+        },
+        {
+          "command": "claudeCodeScheduler.openPromptFile",
+          "when": "view == claudeCodeSchedulerJobs",
+          "group": "2_inspect@4"
         },
         {
           "command": "claudeCodeScheduler.deleteJob",

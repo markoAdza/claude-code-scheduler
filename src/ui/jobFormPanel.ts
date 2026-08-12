@@ -19,10 +19,15 @@ export class JobFormPanel {
     private readonly existingJob: ClaudeJob | undefined,
     private readonly onSubmit: (input: ClaudeJobInput) => Promise<void>,
     private readonly schedulerDisplayName: string,
+    private readonly template: ClaudeJobInput | undefined,
   ) {
     this.panel = vscode.window.createWebviewPanel(
       'claudeCodeSchedulerJobForm',
-      existingJob ? `Edit Job: ${existingJob.name}` : 'New Claude Code Job',
+      existingJob
+        ? `Edit Job: ${existingJob.name}`
+        : template
+          ? `Duplicate Job: ${template.name}`
+          : 'New Claude Code Job',
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true },
     );
@@ -35,13 +40,19 @@ export class JobFormPanel {
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
+  /**
+   * `template` prefills the form with another job's values (for the "Duplicate" action) while
+   * still creating a brand-new job on submit — it's ignored whenever `existingJob` is set, since
+   * editing always takes precedence over prefill data.
+   */
   static show(
     existingJob: ClaudeJob | undefined,
     onSubmit: (input: ClaudeJobInput) => Promise<void>,
     schedulerDisplayName: string,
+    template?: ClaudeJobInput,
   ): void {
     JobFormPanel.currentPanel?.dispose();
-    JobFormPanel.currentPanel = new JobFormPanel(existingJob, onSubmit, schedulerDisplayName);
+    JobFormPanel.currentPanel = new JobFormPanel(existingJob, onSubmit, schedulerDisplayName, template);
   }
 
   private async handleMessage(message: WebviewMessage): Promise<void> {
@@ -92,8 +103,20 @@ export class JobFormPanel {
 
   private handleValidateSchedule(expression: string): void {
     const valid = isValidCronExpression(expression);
-    const preview = valid ? getNextRuns(expression, 3).map((date) => date.toLocaleString()) : [];
-    void this.panel.webview.postMessage({ type: 'scheduleValidated', valid, preview });
+    let preview: string[] = [];
+    // The gap between the first two upcoming runs, in minutes — used by the webview to flag very
+    // frequent schedules (e.g. "every 1 minute") that could rack up costs against a paid API
+    // without the user really meaning to. Derived from actual run dates rather than parsing the
+    // preset/cron text so it also catches a hand-written custom expression.
+    let minIntervalMinutes: number | undefined;
+    if (valid) {
+      const nextRuns = getNextRuns(expression, 3);
+      preview = nextRuns.map((date) => date.toLocaleString());
+      if (nextRuns.length >= 2) {
+        minIntervalMinutes = (nextRuns[1].getTime() - nextRuns[0].getTime()) / 60000;
+      }
+    }
+    void this.panel.webview.postMessage({ type: 'scheduleValidated', valid, preview, minIntervalMinutes });
   }
 
   private async handleSubmit(payload: ClaudeJobInput): Promise<void> {
@@ -121,12 +144,15 @@ export class JobFormPanel {
   private getHtml(): string {
     const nonce = getNonce();
     const job = this.existingJob;
+    // Prefills the form from whichever source applies: the job being edited, the job being
+    // duplicated, or (for a brand-new job) nothing.
+    const values: ClaudeJob | ClaudeJobInput | undefined = job ?? this.template;
     const csp = [
       "default-src 'none'",
       `style-src ${this.panel.webview.cspSource} 'unsafe-inline'`,
       `script-src 'nonce-${nonce}'`,
     ].join('; ');
-    const initialPreset: string = job ? 'custom' : 'daily';
+    const initialPreset: string = values ? 'custom' : 'daily';
     const isWindows = process.platform === 'win32';
     const cwdPlaceholder = path.join(os.homedir(), 'project');
     const outputPlaceholder = path.join(os.homedir(), 'project', 'output.md');
@@ -217,18 +243,24 @@ export class JobFormPanel {
 </style>
 </head>
 <body>
-  <h1>${job ? `Edit "${escapeHtml(job.name)}"` : 'New Claude Code Job'}</h1>
+  <h1>${
+    job
+      ? `Edit "${escapeHtml(job.name)}"`
+      : this.template
+        ? `Duplicate "${escapeHtml(this.template.name)}"`
+        : 'New Claude Code Job'
+  }</h1>
   <p class="subtitle">Schedule a recurring Claude Code CLI prompt.</p>
 
   <div class="field">
     <label for="name">Name</label>
-    <input type="text" id="name" value="${escapeHtml(job?.name ?? '')}" placeholder="e.g. Daily standup summary" />
+    <input type="text" id="name" value="${escapeHtml(values?.name ?? '')}" placeholder="e.g. Daily standup summary" />
   </div>
 
   <div class="card">
     <h2>Prompt</h2>
     <div class="field">
-      <textarea id="prompt" placeholder="The prompt passed to: claude -p &quot;...&quot;">${escapeHtml(job?.prompt ?? '')}</textarea>
+      <textarea id="prompt" placeholder="The prompt passed to: claude -p &quot;...&quot;">${escapeHtml(values?.prompt ?? '')}</textarea>
     </div>
   </div>
 
@@ -238,14 +270,14 @@ export class JobFormPanel {
       <div class="field">
         <label for="cwd">Working directory</label>
         <div class="row">
-          <input type="text" id="cwd" value="${escapeHtml(job?.cwd ?? '')}" placeholder="${escapeHtml(cwdPlaceholder)}" />
+          <input type="text" id="cwd" value="${escapeHtml(values?.cwd ?? '')}" placeholder="${escapeHtml(cwdPlaceholder)}" />
           <button type="button" class="secondary" id="pickFolder">Browse…</button>
         </div>
       </div>
       <div class="field">
         <label for="outputPath">Output file</label>
         <div class="row">
-          <input type="text" id="outputPath" value="${escapeHtml(job?.outputPath ?? '')}" placeholder="${escapeHtml(outputPlaceholder)}" />
+          <input type="text" id="outputPath" value="${escapeHtml(values?.outputPath ?? '')}" placeholder="${escapeHtml(outputPlaceholder)}" />
           <button type="button" class="secondary" id="pickOutputFile">Browse…</button>
         </div>
       </div>
@@ -267,12 +299,13 @@ export class JobFormPanel {
     </div>
     <div class="field">
       <label for="schedule">Cron expression</label>
-      <input type="text" id="schedule" value="${escapeHtml(job?.schedule ?? '0 7 * * *')}" />
+      <input type="text" id="schedule" value="${escapeHtml(values?.schedule ?? '0 7 * * *')}" />
     </div>
     <div id="summary" class="summary" style="display:none;">
       <div id="summaryText"></div>
       <div id="summaryRuns" class="runs"></div>
     </div>
+    <div id="frequencyWarning" class="callout warning" style="display:none;"></div>
     <div id="scheduleError" class="callout error" style="display:none;"></div>
     <div id="windowsWarning" class="callout warning" style="display:none;">
       Custom cron expressions aren't supported by ${escapeHtml(this.schedulerDisplayName)}. Choose one of the
@@ -281,7 +314,7 @@ export class JobFormPanel {
   </div>
 
   <div class="checkbox-row">
-    <input type="checkbox" id="enabled" ${job?.enabled !== false ? 'checked' : ''} />
+    <input type="checkbox" id="enabled" ${values?.enabled !== false ? 'checked' : ''} />
     <label for="enabled" style="margin:0;font-weight:normal;">Enabled (keeps this job scheduled)</label>
   </div>
 
@@ -305,10 +338,15 @@ export class JobFormPanel {
       const summary = document.getElementById('summary');
       const summaryText = document.getElementById('summaryText');
       const summaryRuns = document.getElementById('summaryRuns');
+      const frequencyWarning = document.getElementById('frequencyWarning');
       const scheduleError = document.getElementById('scheduleError');
       const windowsWarning = document.getElementById('windowsWarning');
       const errorBox = document.getElementById('error');
       const saveButton = document.getElementById('save');
+
+      // Below this, a schedule is flagged as "very frequent" — a soft warning only, since a tight
+      // interval is sometimes exactly what's wanted. It never blocks Save.
+      const FREQUENT_SCHEDULE_THRESHOLD_MINUTES = 5;
 
       let scheduleValid = false;
 
@@ -413,6 +451,19 @@ export class JobFormPanel {
         }
       }
 
+      function updateFrequencyWarning(minIntervalMinutes) {
+        if (typeof minIntervalMinutes !== 'number' || minIntervalMinutes >= FREQUENT_SCHEDULE_THRESHOLD_MINUTES) {
+          frequencyWarning.style.display = 'none';
+          return;
+        }
+        const rounded = Math.max(1, Math.round(minIntervalMinutes));
+        const perHour = Math.round(60 / rounded);
+        frequencyWarning.style.display = 'block';
+        frequencyWarning.textContent =
+          'This schedule runs about every ' + rounded + ' minute(s) (~' + perHour + 'x per hour). ' +
+          'If this job calls a paid API, frequent runs can get expensive fast — make sure that is intended.';
+      }
+
       let validateTimer;
       function validateSchedule() {
         clearTimeout(validateTimer);
@@ -485,10 +536,12 @@ export class JobFormPanel {
           if (!message.valid) {
             scheduleError.textContent = 'Invalid cron expression.';
             summary.style.display = 'none';
+            frequencyWarning.style.display = 'none';
           } else {
             summary.style.display = 'block';
             summaryText.textContent = describeSchedule(presetSelect.value);
             summaryRuns.textContent = 'Next runs: ' + message.preview.join(', ');
+            updateFrequencyWarning(message.minIntervalMinutes);
           }
           updateSaveState();
         } else if (message.type === 'submitError') {

@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ClaudeJob } from './job';
+import { RUN_HISTORY_MAX_ENTRIES } from './runHistory';
 import { getRunsTouchFile } from './runStatus';
 
 export const DEFAULT_JOB_TIMEOUT_MINUTES = 30;
@@ -11,6 +12,7 @@ export interface JobScriptPaths {
   runScript: string;
   errorLog: string;
   statusFile: string;
+  historyFile: string;
   lockDir: string;
 }
 
@@ -27,6 +29,7 @@ export function getScriptPaths(
     runScript: path.join(dir, `run.${scriptExt}`),
     errorLog: path.join(dir, 'error.log'),
     statusFile: path.join(dir, 'status.json'),
+    historyFile: path.join(dir, 'history.jsonl'),
     lockDir: path.join(dir, '.lock'),
   };
 }
@@ -86,6 +89,10 @@ function buildRunScriptPosix(
     // Written on every run — scheduled or manual — so the extension can show real run status
     // instead of only reflecting runs started from inside VS Code.
     `printf '{"timestamp":"%s","exitCode":%d}\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$EXIT_CODE" > ${shQuote(paths.statusFile)}`,
+    // Appended (not overwritten) so the extension can show run history, then trimmed to the
+    // most recent entries so a job scheduled every minute doesn't grow this file forever.
+    `printf '{"timestamp":"%s","exitCode":%d}\\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$EXIT_CODE" >> ${shQuote(paths.historyFile)}`,
+    `tail -n ${RUN_HISTORY_MAX_ENTRIES} ${shQuote(paths.historyFile)} > ${shQuote(`${paths.historyFile}.tmp`)} 2>/dev/null && mv ${shQuote(`${paths.historyFile}.tmp`)} ${shQuote(paths.historyFile)}`,
     `touch ${shQuote(getRunsTouchFile(dataDir))} 2>/dev/null`,
     'exit "$EXIT_CODE"',
   );
@@ -156,6 +163,10 @@ function buildRunScriptWindows(
     // instead of only reflecting runs started from inside VS Code.
     "$status = '{\"timestamp\":\"' + (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') + '\",\"exitCode\":' + $exitCode + '}'",
     `try { [System.IO.File]::WriteAllText(${psQuote(paths.statusFile)}, $status, [System.Text.Encoding]::UTF8) } catch {}`,
+    // Appended (not overwritten) so the extension can show run history, then trimmed to the
+    // most recent entries so a job scheduled every minute doesn't grow this file forever.
+    `try { Add-Content -LiteralPath ${psQuote(paths.historyFile)} -Value $status -Encoding UTF8 } catch {}`,
+    `try { (Get-Content -LiteralPath ${psQuote(paths.historyFile)} -ErrorAction Stop | Select-Object -Last ${RUN_HISTORY_MAX_ENTRIES}) | Set-Content -LiteralPath ${psQuote(paths.historyFile)} -Encoding UTF8 } catch {}`,
     `try { [System.IO.File]::WriteAllText(${psQuote(getRunsTouchFile(dataDir))}, '', [System.Text.Encoding]::UTF8) } catch {}`,
     'Remove-Item -LiteralPath $lockDir -Recurse -Force -ErrorAction SilentlyContinue',
     'exit $exitCode',

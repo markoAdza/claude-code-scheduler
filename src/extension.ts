@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { ClaudeJobInput } from './jobs/job';
 import { JobStore } from './jobs/jobStore';
 import { runJobNow } from './jobs/jobRunner';
+import { readRunHistory } from './jobs/runHistory';
 import { DEFAULT_JOB_TIMEOUT_MINUTES, getScriptPaths, removeJobScript, writeJobScript } from './jobs/scriptGenerator';
 import { createSchedulerBackend, SchedulerContext } from './scheduler';
 import { addAdditionalPathEntry, detectClaudeCli, getAdditionalPathEntries, getConfiguredClaudeExecutablePath } from './util/claudeCli';
@@ -89,6 +90,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       JobFormPanel.show(item.job, (input) => saveJob(item.job.id, input), schedulerBackend.displayName);
     }),
 
+    vscode.commands.registerCommand('claudeCodeScheduler.duplicateJob', (item: JobTreeItem) => {
+      const template: ClaudeJobInput = {
+        name: `${item.job.name} (copy)`,
+        prompt: item.job.prompt,
+        cwd: item.job.cwd,
+        schedule: item.job.schedule,
+        outputPath: item.job.outputPath,
+        // Disabled by default: a duplicate of a frequent schedule shouldn't silently start firing
+        // twice as often until the user has reviewed and deliberately re-enabled it.
+        enabled: false,
+      };
+      JobFormPanel.show(undefined, (input) => saveJob(undefined, input), schedulerBackend.displayName, template);
+    }),
+
     vscode.commands.registerCommand('claudeCodeScheduler.deleteJob', async (item: JobTreeItem) => {
       const confirmed = await vscode.window.showWarningMessage(
         `Delete job "${item.job.name}"? This removes its scheduled entry and generated files.`,
@@ -128,6 +143,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await vscode.window.showTextDocument(doc, { preview: true });
       } catch {
         void vscode.window.showWarningMessage(`No output yet for "${item.job.name}".`);
+      }
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.viewErrorLog', async (item: JobTreeItem) => {
+      const { errorLog } = getScriptPaths(dataDir, item.job.id);
+      try {
+        const doc = await vscode.workspace.openTextDocument(errorLog);
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch {
+        void vscode.window.showInformationMessage(`No error log yet for "${item.job.name}".`);
+      }
+    }),
+
+    vscode.commands.registerCommand('claudeCodeScheduler.viewRunHistory', async (item: JobTreeItem) => {
+      const { historyFile } = getScriptPaths(dataDir, item.job.id);
+      const entries = readRunHistory(historyFile).slice().reverse();
+      if (entries.length === 0) {
+        void vscode.window.showInformationMessage(`"${item.job.name}" hasn't run yet.`);
+        return;
+      }
+      const picked = await vscode.window.showQuickPick(
+        entries.map((entry) => ({
+          label: `${entry.exitCode === 0 ? '$(check)' : '$(error)'} ${new Date(entry.timestamp).toLocaleString()}`,
+          description: `exit code ${entry.exitCode}`,
+        })),
+        { title: `Run history: ${item.job.name}`, placeHolder: 'Select a run to open its error log' },
+      );
+      if (picked) {
+        await vscode.commands.executeCommand('claudeCodeScheduler.viewErrorLog', item);
       }
     }),
 

@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- "Duplicate Job" action that opens a prefilled New Job form from an existing job's settings, so
+  variations on a job no longer need to be built from scratch. The duplicate starts disabled so it
+  can't start firing on the original's schedule before it's been reviewed.
+- "View Run History" and "View Error Log" actions per job. Each run now appends its timestamp and
+  exit code to a `history.jsonl` file (trimmed to the most recent 50 entries), viewable as a
+  pass/fail list from which the error log can be opened directly.
+- A soft warning in the job form when a schedule (preset or custom cron) runs more often than
+  every 5 minutes, since a very frequent schedule against a paid API can get expensive fast. It's
+  informational only and doesn't block saving.
 - Job status shown in the tree view (icon, "last exit" text, and tooltip) now reflects every real
   run of a job — including ones triggered by the OS scheduler while VS Code was closed — instead
   of only manual "Run Now" invocations.

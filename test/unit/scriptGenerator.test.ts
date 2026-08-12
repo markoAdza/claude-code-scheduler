@@ -98,6 +98,18 @@ suite('scriptGenerator', () => {
     assert.match(script, /exit "\$EXIT_CODE"\n$/);
   });
 
+  test('appends a run history entry and trims it to the most recent lines', () => {
+    const job = makeJob();
+    const paths = getScriptPaths('/data', job.id);
+    const script = buildRunScript(job, paths, '/usr/bin/claude', [], '/data');
+
+    assert.match(script, />> '\/data\/scripts\/job-1\/history\.jsonl'/);
+    assert.match(
+      script,
+      /tail -n 50 '\/data\/scripts\/job-1\/history\.jsonl' > '\/data\/scripts\/job-1\/history\.jsonl\.tmp' 2>\/dev\/null && mv '\/data\/scripts\/job-1\/history\.jsonl\.tmp' '\/data\/scripts\/job-1\/history\.jsonl'/,
+    );
+  });
+
   test('getScriptPaths uses a .ps1 extension on win32 and .sh elsewhere', () => {
     assert.match(getScriptPaths('/data', 'job-1', 'win32').runScript, /run\.ps1$/);
     assert.match(getScriptPaths('/data', 'job-1', 'linux').runScript, /run\.sh$/);
@@ -156,5 +168,18 @@ suite('scriptGenerator', () => {
 
     assert.ok(script.includes(`[System.IO.File]::WriteAllText('${paths.statusFile}', $status`));
     assert.ok(script.includes(`[System.IO.File]::WriteAllText('/data/runs.touch', ''`));
+  });
+
+  test('PowerShell script appends a run history entry and trims it to the most recent lines', () => {
+    const job = makeJob();
+    const paths = getScriptPaths('/data', job.id, 'win32');
+    const script = buildRunScript(job, paths, 'C:\\tools\\claude.exe', [], '/data', 30, 'win32');
+
+    assert.ok(script.includes(`Add-Content -LiteralPath '${paths.historyFile}' -Value $status`));
+    assert.ok(
+      script.includes(
+        `(Get-Content -LiteralPath '${paths.historyFile}' -ErrorAction Stop | Select-Object -Last 50) | Set-Content -LiteralPath '${paths.historyFile}'`,
+      ),
+    );
   });
 });
