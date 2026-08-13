@@ -392,24 +392,24 @@ export class JobFormPanel {
       // editing a job shows its actual preset/values instead of always falling back to "custom"
       // (which, on Windows, would incorrectly flag an already-supported schedule as unsupported).
       function detectPreset(cron) {
-        const parts = String(cron).trim().split(/\s+/);
+        const parts = String(cron).trim().split(/\\s+/);
         if (parts.length !== 5) { return { preset: 'custom' }; }
         const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
         if (dayOfMonth !== '*' || month !== '*') { return { preset: 'custom' }; }
         if (dayOfWeek !== '*') {
-          if (/^\d+$/.test(minute) && /^\d+$/.test(hour) && dayOfWeek === '1-5') {
+          if (/^\\d+$/.test(minute) && /^\\d+$/.test(hour) && dayOfWeek === '1-5') {
             return { preset: 'weekdays', hour: hour, minute: minute };
           }
           return { preset: 'custom' };
         }
-        const stepMatch = /^\*\/(\d+)$/.exec(minute);
+        const stepMatch = /^\\*\\/(\\d+)$/.exec(minute);
         if (stepMatch && hour === '*') {
           return { preset: 'every-n-minutes', minutes: stepMatch[1] };
         }
-        if (/^\d+$/.test(minute) && hour === '*') {
+        if (/^\\d+$/.test(minute) && hour === '*') {
           return { preset: 'hourly', minute: minute };
         }
-        if (/^\d+$/.test(minute) && /^\d+$/.test(hour)) {
+        if (/^\\d+$/.test(minute) && /^\\d+$/.test(hour)) {
           return { preset: 'daily', hour: hour, minute: minute };
         }
         return { preset: 'custom' };
